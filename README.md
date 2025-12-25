@@ -12,7 +12,7 @@ ReqGuard is a zero-dependency runtime security layer that intercepts Node.js mod
 ## ✨ Features
 
 - **🚀 Zero Runtime Dependencies** — The core uses only Node.js built-ins
-- **🔒 CJS Interception** — Hooks into `Module.prototype.require` to validate every module load
+- **🔒 Dual Runtime Interception** — Hooks both CJS `require` and ESM `import` (via loader)
 - **📋 Configurable Policies** — Allow/Block/Warn lists with wildcard pattern support
 - **🛑 Restricted Built-ins** — Block dangerous modules like `child_process` or `vm`
 - **🤝 Promise Support** — Fully patches `fs.promises` API to prevent async bypasses
@@ -210,25 +210,21 @@ reqguard.init({
 
 ## ⚠️ Caveats & Limitations
 
-> [!WARNING]
-> **ESM Imports Not Yet Supported**  
-> ReqGuard v0.1 only intercepts CommonJS `require()` calls. ES Module `import` statements are **not intercepted**. If your project uses ESM, consider using CJS for your entry point or wait for v0.2.
-
-> [!NOTE]
-> **Heuristic Scanning Coming in v0.2**  
-> The current version uses policy-based blocking only. Dynamic heuristic analysis (detecting suspicious patterns in module source code) is planned for v0.2.
+> [!IMPORTANT]
+> **ESM Support**
+> ReqGuard v1.0+ supports both CJS and ESM. For ESM support, ensure you register the loader or import the package early.
 
 ### Current Limitations
 
 | Feature | Status |
 |---------|--------|
 | CJS `require()` interception | ✅ Supported |
-| ESM `import` interception | ❌ Planned for v0.2 |
+| ESM `import` interception | ✅ Supported (v1.0+) |
 | Allow/Block/Warn lists | ✅ Supported |
 | Wildcard patterns | ✅ Supported |
-| Heuristic code scanning | ❌ Planned for v0.2 |
-| Vulnerability DB lookup | ❌ Planned for v0.2 |
-| Lockfile integrity checks | ❌ Planned for v0.3 |
+| Typosquatting Detection | ✅ Supported (Basic) |
+| Vulnerability DB lookup | ❌ Planned for v1.1 |
+| Lockfile integrity checks | ❌ Planned for v1.1 |
 
 ---
 
