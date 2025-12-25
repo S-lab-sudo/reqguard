@@ -13,6 +13,7 @@ eslint.config.js
 # Demo and docs
 demo.ts
 Chat.txt
+Answer.txt
 ROADMAP*.md
 marketing/
 

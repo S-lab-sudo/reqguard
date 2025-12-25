@@ -1,72 +1,142 @@
-import Module from 'module';
+/**
+ * ReqGuard CJS Interceptor
+ * Patches Module.prototype.require to intercept all CommonJS module loads.
+ * Zero-dependency runtime security.
+ */
 
-let originalRequire: ((id: string) => any) | null = null;
+import Module from 'node:module';
+import { PolicyEngine } from './policy-engine';
+import { SecurityError } from './SecurityError';
+
+// Store original require for restoration
+let originalRequire: ((this: Module, id: string) => unknown) | null = null;
 let isHooked = false;
-let isAnalyzing = false;
 
-export type AnalyzeFunction = (id: string, resolvedPath: string) => void;
+// Recursion guard to prevent infinite loops
+let isChecking = false;
 
-// Default no-op analyzer
-let globalAnalyzer: AnalyzeFunction = () => { };
+/** Callback type for module analysis */
+export type AnalyzeCallback = (moduleId: string, resolvedPath: string) => void;
+
+// Optional analyzer callback for additional checks (e.g., typosquatting)
+let analyzerCallback: AnalyzeCallback | null = null;
 
 /**
- * Hook into Node.js Module.prototype.require using a proxy.
- * @param analyzer Optional callback to analyze the module before loading.
+ * Hook into Node.js Module.prototype.require.
+ * Intercepts all CommonJS require() calls and checks against PolicyEngine.
+ * 
+ * @param analyzer Optional callback for additional analysis (typosquatting, etc.)
  */
-export function hookRequire(analyzer?: AnalyzeFunction) {
+export function hookRequire(analyzer?: AnalyzeCallback): void {
     if (isHooked) {
-        if (analyzer) globalAnalyzer = analyzer;
+        // Already hooked, just update analyzer if provided
+        if (analyzer) {
+            analyzerCallback = analyzer;
+        }
         return;
     }
 
     if (analyzer) {
-        globalAnalyzer = analyzer;
+        analyzerCallback = analyzer;
     }
 
+    // Store original
     originalRequire = Module.prototype.require;
 
-    Module.prototype.require = function (this: Module, id: string): any {
-        // Recursion guard: prevent infinite loops if the analyzer itself uses require
-        if (isAnalyzing) {
+    // Patch require
+    Module.prototype.require = function patchedRequire(this: Module, id: string): unknown {
+        // FAST PATH 1: Recursion guard
+        if (isChecking) {
             return originalRequire!.call(this, id);
         }
 
-        try {
-            // Use internal helper to resolve the filename without loading it
-            // _resolveFilename(request, parent, isMain, options)
-            // Note: This matches Node.js behavior to resolve specific paths
-            const resolvedPath = (Module as any)._resolveFilename(id, this, false);
-
-            isAnalyzing = true;
-            try {
-                globalAnalyzer(id, resolvedPath);
-            } finally {
-                isAnalyzing = false;
-            }
-        } catch (error: any) {
-            // If it's a security block, rethrow it to stop loading
-            if (error instanceof Error && error.message.startsWith('[reqguard] Blocked')) {
-                throw error;
-            }
-            // If resolution fails (e.g. module not found), let originalRequire handle the error
-            // Or if the analyzer crashes unexpectedly, we might want to fail open or closed.
-            // For MVP, we pass through resolution errors (they will be thrown again by originalRequire)
+        // FAST PATH 2: Relative imports skip policy check (user's own code)
+        if (id.startsWith('./') || id.startsWith('../')) {
+            return originalRequire!.call(this, id);
         }
 
+        // FAST PATH 3: Node protocol prefix - extract module name
+        const moduleId = id.startsWith('node:') ? id.substring(5) : id;
+
+        try {
+            isChecking = true;
+
+            // Get PolicyEngine singleton
+            const engine = PolicyEngine.getInstance();
+
+            // Check if module is allowed
+            const allowed = engine.check(id);
+
+            if (!allowed) {
+                // In non-enforce mode, check() returns false but doesn't throw
+                // We should still block the require
+                throw new SecurityError(`Module '${id}' is blocked by security policy`);
+            }
+
+            // Optional: Run additional analyzer (e.g., typosquatting check)
+            if (analyzerCallback) {
+                try {
+                    // Resolve path for analyzer
+                    const resolvedPath = (Module as unknown as {
+                        _resolveFilename: (request: string, parent: Module, isMain: boolean) => string;
+                    })._resolveFilename(id, this, false);
+
+                    analyzerCallback(moduleId, resolvedPath);
+                } catch (analyzerError) {
+                    // Analyzer errors shouldn't block require
+                    // unless it's a SecurityError
+                    if (analyzerError instanceof SecurityError) {
+                        throw analyzerError;
+                    }
+                }
+            }
+        } catch (error) {
+            // Re-throw SecurityError
+            if (error instanceof SecurityError) {
+                throw error;
+            }
+            // Re-throw errors with our prefix
+            if (error instanceof Error && error.message.startsWith('[reqguard]')) {
+                throw error;
+            }
+            // Other errors (e.g., module not found) pass through
+        } finally {
+            isChecking = false;
+        }
+
+        // Call original require
         return originalRequire!.call(this, id);
-    } as any;
+    } as typeof Module.prototype.require;
 
     isHooked = true;
 }
 
 /**
- * Restore the original require function.
- * Useful for cleanup in tests.
+ * Restore original require function.
+ * Useful for testing or cleanup.
  */
-export function restoreRequire() {
+export function restoreRequire(): void {
     if (isHooked && originalRequire) {
         Module.prototype.require = originalRequire;
         originalRequire = null;
         isHooked = false;
+        analyzerCallback = null;
     }
 }
+
+/**
+ * Check if require is currently hooked.
+ */
+export function isRequireHooked(): boolean {
+    return isHooked;
+}
+
+/**
+ * Set the analyzer callback without re-hooking.
+ */
+export function setAnalyzer(analyzer: AnalyzeCallback | null): void {
+    analyzerCallback = analyzer;
+}
+
+// Re-export SecurityError for convenience
+export { SecurityError };

@@ -15,6 +15,8 @@ ReqGuard is a zero-dependency runtime security layer that intercepts Node.js mod
 - **🔒 CJS Interception** — Hooks into `Module.prototype.require` to validate every module load
 - **📋 Configurable Policies** — Allow/Block/Warn lists with wildcard pattern support
 - **🛑 Restricted Built-ins** — Block dangerous modules like `child_process` or `vm`
+- **🤝 Promise Support** — Fully patches `fs.promises` API to prevent async bypasses
+- **🛡️ Network Hardening** — Blocks malicious IPs including IPv6 mapped & link-local addresses
 - **⚡ Lightweight** — Minimal performance overhead with in-memory checks
 - **🧪 Well Tested** — Comprehensive test suite with 30+ passing tests
 

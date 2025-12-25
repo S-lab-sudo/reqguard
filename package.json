@@ -1,6 +1,6 @@
 {
   "name": "reqguard",
-  "version": "0.1.1",
+  "version": "1.0.1",
   "description": "Runtime security guard for Node.js dependencies - intercepts module loading to block malicious packages",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -42,6 +42,7 @@
     "README.md"
   ],
   "devDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "^4.54.0",
     "@types/node": "^25.0.3",
     "@typescript-eslint/eslint-plugin": "^8.50.1",
     "@typescript-eslint/parser": "^8.50.1",

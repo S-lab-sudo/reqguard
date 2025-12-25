@@ -1,146 +1,218 @@
 /**
- * reqguard - Runtime Security Guard for Node.js Dependencies
- *
+ * ReqGuard - Runtime Security Guard for Node.js
+ * Zero-dependency module security with secure defaults.
+ * 
  * @example
  * ```typescript
+ * // Method 1: Auto-activate with --import flag
+ * // node --import reqguard app.js
+ * 
+ * // Method 2: Programmatic initialization
  * import reqguard from 'reqguard';
- *
- * reqguard.init({
- *   packages: {
- *     block: [{ name: 'malicious-pkg', reason: 'Known malware' }]
- *   }
- * });
- *
- * // Now any require('malicious-pkg') will throw an error
+ * reqguard.init();
+ * 
+ * // Method 3: Express middleware
+ * import { middleware } from 'reqguard';
+ * app.use(middleware());
  * ```
  */
 
+// Core exports
+export { SecurityError } from './core/SecurityError';
+export { PolicyEngine, getPolicyEngine, PolicyConfig } from './core/policy-engine';
+export { hookRequire, restoreRequire, isRequireHooked } from './core/cjs-interceptor';
+export { lockdownPrimordials, restorePrimordials, arePrimordialsLocked } from './core/primordials';
+export { activateNetworkShield, deactivateNetworkShield, isNetworkShieldActive } from './core/network-shield';
+export { activateFsShield, deactivateFsShield, isFsShieldActive } from './core/fs-shield';
+export { checkTyposquat, warnIfTyposquat, getPopularPackages, isPopularPackage } from './core/typosquat';
+export { loadConfig, getDefaultConfig, hasConfigFile, ReqGuardConfig } from './bootstrap';
+
+// Utility exports
+export { levenshtein, isSimilar } from './utils/levenshtein';
+
+// Import for internal use
+import { PolicyEngine } from './core/policy-engine';
 import { hookRequire, restoreRequire } from './core/cjs-interceptor';
-import { PolicyEngine } from './policy/PolicyEngine';
-import { ReqGuardPolicy, PolicyDecision } from './types/policy';
+import { lockdownPrimordials, restorePrimordials } from './core/primordials';
+import { activateNetworkShield, deactivateNetworkShield } from './core/network-shield';
+import { activateFsShield, deactivateFsShield } from './core/fs-shield';
+import { warnIfTyposquat } from './core/typosquat';
+import { loadConfig, ReqGuardConfig } from './bootstrap';
 
-let engine: PolicyEngine | null = null;
+/** State tracking */
 let isInitialized = false;
+let currentConfig: ReqGuardConfig | null = null;
 
 /**
- * Log a message based on the configured log level.
+ * Initialize ReqGuard with all security shields.
+ * 
+ * @param config Optional configuration override
  */
-function log(
-    level: 'error' | 'warn' | 'info' | 'debug',
-    message: string,
-    policy: ReqGuardPolicy
-): void {
-    const levels = ['silent', 'error', 'warn', 'info', 'debug'];
-    const currentLevel = levels.indexOf(policy.logging.level);
-    const messageLevel = levels.indexOf(level);
-
-    if (messageLevel <= currentLevel && currentLevel > 0) {
-        const prefix = `[reqguard]`;
-        switch (level) {
-            case 'error':
-                console.error(`${prefix} ❌ ${message}`);
-                break;
-            case 'warn':
-                console.warn(`${prefix} ⚠️  ${message}`);
-                break;
-            case 'info':
-                console.info(`${prefix} ℹ️  ${message}`);
-                break;
-            case 'debug':
-                console.debug(`${prefix} 🔍 ${message}`);
-                break;
-        }
-    }
-}
-
-/**
- * Initialize reqguard with a policy configuration.
- * This hooks into Node's require() to intercept module loading.
- *
- * @param config Partial policy configuration (merged with defaults)
- */
-export function init(config: Partial<ReqGuardPolicy> = {}): void {
+export function init(config?: Partial<ReqGuardConfig>): void {
     if (isInitialized) {
-        // Already initialized, just update the engine
-        engine = new PolicyEngine(config);
+        // Re-configure if already initialized
+        if (config) {
+            configure(config);
+        }
         return;
     }
 
-    engine = new PolicyEngine(config);
-    const policy = engine.getPolicy();
+    // Load configuration (from reqguard.json or defaults)
+    const loadedConfig = loadConfig();
+    currentConfig = { ...loadedConfig, ...config };
 
-    log('info', 'Initializing...', policy);
+    // Configure policy engine
+    PolicyEngine.configure({
+        mode: currentConfig.mode,
+        allowDangerousBuiltins: currentConfig.allowDangerousBuiltins,
+        blocklist: currentConfig.blocklist || [],
+        allowlist: currentConfig.allowlist || [],
+        logLevel: currentConfig.logLevel,
+    });
 
-    hookRequire((moduleId: string, resolvedPath: string) => {
-        if (!engine) return;
-
-        const decision: PolicyDecision = engine.evaluate(moduleId, resolvedPath);
-
-        switch (decision.action) {
-            case 'block':
-                log('error', `BLOCKED: ${moduleId} - ${decision.reason}`, policy);
-                if (policy.mode === 'enforce') {
-                    throw new Error(
-                        `[reqguard] Blocked: ${moduleId} - ${decision.reason}`
-                    );
-                }
-                break;
-
-            case 'warn':
-                log('warn', `WARNING: ${moduleId} - ${decision.reason}`, policy);
-                break;
-
-            case 'analyze':
-                // In MVP, we just allow if no explicit rule
-                // Future: Pass to analysis pipeline
-                log('debug', `ANALYZE: ${moduleId} (no explicit rule)`, policy);
-                break;
-
-            case 'allow':
-                log('debug', `ALLOWED: ${moduleId}`, policy);
-                break;
+    // Hook require with typosquatting detection
+    hookRequire((_moduleId, _resolvedPath) => {
+        if (currentConfig?.typosquatDetection) {
+            // Only check package names, not relative imports
+            if (!_moduleId.startsWith('.') && !_moduleId.startsWith('/')) {
+                warnIfTyposquat(_moduleId);
+            }
         }
     });
 
-    isInitialized = true;
-    log('info', `Active (mode: ${policy.mode})`, policy);
-}
+    // Activate shields based on config
+    if (currentConfig.lockdownPrimordials) {
+        lockdownPrimordials();
+    }
 
-/**
- * Shutdown reqguard and restore original require behavior.
- * Useful for testing or when you want to disable protection.
- */
-export function shutdown(): void {
-    if (isInitialized) {
-        restoreRequire();
-        engine = null;
-        isInitialized = false;
+    if (currentConfig.networkShield) {
+        activateNetworkShield();
+    }
+
+    if (currentConfig.fsShield) {
+        activateFsShield();
+    }
+
+    isInitialized = true;
+
+    // Log initialization
+    const engine = PolicyEngine.getInstance();
+    const logLevel = engine.getConfig().logLevel;
+    if (logLevel !== 'silent') {
+        console.log('[reqguard] ✅ Security shields activated');
     }
 }
 
 /**
- * Check if reqguard is currently active.
+ * Configure ReqGuard without full initialization.
+ * Use this to update settings on an already-initialized instance.
+ * 
+ * @param config Configuration options
+ */
+export function configure(config: Partial<ReqGuardConfig>): void {
+    if (currentConfig) {
+        currentConfig = { ...currentConfig, ...config };
+    } else {
+        currentConfig = { ...loadConfig(), ...config };
+    }
+
+    // Update policy engine with full merged config
+    PolicyEngine.configure({
+        mode: currentConfig.mode,
+        allowDangerousBuiltins: currentConfig.allowDangerousBuiltins,
+        blocklist: currentConfig.blocklist,
+        allowlist: currentConfig.allowlist,
+        logLevel: currentConfig.logLevel,
+    });
+}
+
+/**
+ * Shutdown ReqGuard and restore all patched functions.
+ * Useful for testing or when intentionally disabling protection.
+ */
+export function shutdown(): void {
+    if (!isInitialized) {
+        return;
+    }
+
+    // Restore all patches
+    restoreRequire();
+    restorePrimordials();
+    deactivateNetworkShield();
+    deactivateFsShield();
+
+    // Reset policy engine
+    PolicyEngine.reset();
+
+    isInitialized = false;
+    currentConfig = null;
+}
+
+/**
+ * Check if ReqGuard is currently active.
  */
 export function isActive(): boolean {
     return isInitialized;
 }
 
 /**
- * Get the current policy engine instance.
- * Returns null if not initialized.
+ * Get the current configuration.
  */
-export function getEngine(): PolicyEngine | null {
-    return engine;
+export function getConfig(): Readonly<ReqGuardConfig> | null {
+    return currentConfig;
 }
 
-// Default export for convenience
-export default {
+/**
+ * Express/Koa middleware for ReqGuard.
+ * Auto-initializes if not already done.
+ * 
+ * @param config Optional configuration
+ * @returns Middleware function
+ */
+export function middleware(config?: Partial<ReqGuardConfig>) {
+    // Initialize with provided config
+    if (!isInitialized) {
+        init(config);
+    } else if (config) {
+        configure(config);
+    }
+
+    // Return middleware that does nothing (protection is already active)
+    return function reqguardMiddleware(
+        _req: unknown,
+        _res: unknown,
+        next: () => void
+    ): void {
+        // All protection happens at require() time
+        // This middleware just ensures ReqGuard is initialized
+        next();
+    };
+}
+
+// Default export object for convenience
+const reqguard = {
     init,
+    configure,
     shutdown,
     isActive,
-    getEngine,
+    getConfig,
+    middleware,
+    PolicyEngine,
 };
 
-// Named exports for types
-export type { ReqGuardPolicy, PolicyDecision } from './types/policy';
-export { PolicyEngine } from './policy/PolicyEngine';
+export default reqguard;
+
+// Auto-activate when imported via --import flag
+// Check if we're being imported as the main loader
+if (typeof process !== 'undefined' && process.argv) {
+    const isLoader = process.argv.some(
+        (arg) => arg.includes('--import') || arg.includes('--loader')
+    );
+
+    // Don't auto-activate in test environments
+    const isTest = process.env.NODE_ENV === 'test' || process.env.VITEST;
+
+    if (isLoader && !isTest) {
+        init();
+    }
+}
