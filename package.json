@@ -1,0 +1,53 @@
+{
+  "name": "reqguard",
+  "version": "0.1.1",
+  "description": "Runtime security guard for Node.js dependencies - intercepts module loading to block malicious packages",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "demo": "ts-node demo.ts",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "keywords": [
+    "security",
+    "npm",
+    "dependencies",
+    "supply-chain",
+    "malware",
+    "runtime",
+    "guard",
+    "require",
+    "interception",
+    "policy"
+  ],
+  "author": "",
+  "license": "MIT",
+  "type": "commonjs",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/S-lab-sudo/reqguard.git"
+  },
+  "bugs": {
+    "url": "https://github.com/S-lab-sudo/reqguard/issues"
+  },
+  "homepage": "https://github.com/S-lab-sudo/reqguard#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "devDependencies": {
+    "@types/node": "^25.0.3",
+    "@typescript-eslint/eslint-plugin": "^8.50.1",
+    "@typescript-eslint/parser": "^8.50.1",
+    "eslint": "^9.39.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}

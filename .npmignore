@@ -1,0 +1,48 @@
+# Source files (use dist/ instead)
+src/
+tests/
+
+# Development files
+*.ts
+!*.d.ts
+tsconfig.json
+vitest.config.ts
+eslint.config.js
+.eslintrc*
+
+# Demo and docs
+demo.ts
+Chat.txt
+ROADMAP*.md
+marketing/
+
+# Dependencies
+node_modules/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Git
+.git/
+.gitignore
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
+
+# Environment
+.env
+.env.*
+
+# Lock files (not needed in published package)
+package-lock.json
